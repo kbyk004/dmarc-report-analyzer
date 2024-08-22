@@ -46,6 +46,14 @@ def parse_dmarc_report(content):
             row['spf_domain'] = None
             row['spf_auth_result'] = None
         
+        # ARC結果の解析を追加
+        row['arc_result'] = None
+        reason = record.find('.//policy_evaluated/reason')
+        if reason is not None:
+            comment = reason.find('comment')
+            if comment is not None and 'arc=pass' in comment.text.lower():
+                row['arc_result'] = 'pass'
+        
         data.append(row)
     
     df = pd.DataFrame(data)
@@ -63,7 +71,7 @@ def dataframe_to_html(df):
     
     return html
 
-def generate_html_report(df, dkim_fig, spf_fig, domain_analysis, mismatch_df, total_messages, pass_rate, problem_ips):
+def generate_html_report(df, dkim_fig, spf_fig, arc_fig, domain_analysis, mismatch_df, total_messages, pass_rate, problem_ips):
     # 分析期間の計算
     start_date = df['date'].min()
     end_date = df['date'].max()
@@ -102,7 +110,7 @@ def generate_html_report(df, dkim_fig, spf_fig, domain_analysis, mismatch_df, to
             <div class="bg-white shadow rounded-lg p-6 mb-8">
                 <h2 class="text-2xl font-semibold mb-4">認証結果の詳細分析</h2>
                 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div>
                         <h3 class="text-xl font-semibold mb-2">DKIM認証の詳細</h3>
                         <div>{{ dkim_chart | safe }}</div>
@@ -110,6 +118,10 @@ def generate_html_report(df, dkim_fig, spf_fig, domain_analysis, mismatch_df, to
                     <div>
                         <h3 class="text-xl font-semibold mb-2">SPF認証の詳細</h3>
                         <div>{{ spf_chart | safe }}</div>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">ARC認証の詳細</h3>
+                        <div>{{ arc_chart | safe }}</div>
                     </div>
                 </div>
                 
@@ -145,6 +157,7 @@ def generate_html_report(df, dkim_fig, spf_fig, domain_analysis, mismatch_df, to
         problem_ips=dataframe_to_html(problem_ips) if not problem_ips.empty else None,
         dkim_chart=plot_to_html(dkim_fig),
         spf_chart=plot_to_html(spf_fig),
+        arc_chart=plot_to_html(arc_fig),
         domain_analysis=dataframe_to_html(domain_analysis),
         mismatch_df=dataframe_to_html(mismatch_df) if not mismatch_df.empty else None,
         detailed_results=dataframe_to_html(df)
@@ -205,13 +218,15 @@ def main():
                 'DKIM Pass': (df['dkim_result'] == 'pass').sum(),
                 'DKIM Fail': (df['dkim_result'] == 'fail').sum(),
                 'SPF Pass': (df['spf_result'] == 'pass').sum(),
-                'SPF Fail': (df['spf_result'] == 'fail').sum()
+                'SPF Fail': (df['spf_result'] == 'fail').sum(),
+                'ARC Pass': (df['arc_result'] == 'pass').sum(),
+                'ARC Fail': (df['arc_result'].isnull()).sum()
             }
             auth_df = pd.DataFrame(list(auth_results.items()), columns=['認証', '数'])
             fig = go.Figure(data=[go.Pie(
                 labels=auth_df['認証'],
                 values=auth_df['数'],
-                marker=dict(colors=['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'])
+                marker=dict(colors=['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f'])
             )])
             fig.update_layout(title='認証結果の分布')
             st.plotly_chart(fig)
@@ -228,7 +243,7 @@ def main():
 
         st.subheader("認証結果の詳細分析")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             # DKIM認証の詳細分析
@@ -255,15 +270,29 @@ def main():
             )])
             fig_spf.update_layout(title='SPF認証結果')
             st.plotly_chart(fig_spf)
+        
+        with col3:
+            # ARC認証の詳細分析
+            arc_analysis = df['arc_result'].value_counts().reset_index()
+            arc_analysis.columns = ['arc_result', 'count']
+            fig_arc = go.Figure(data=[go.Pie(
+                labels=arc_analysis['arc_result'],
+                values=arc_analysis['count'],
+                textinfo='percent+label',
+                marker=dict(colors=['#66c2a5', '#fc8d62'])
+            )])
+            fig_arc.update_layout(title='ARC認証結果')
+            st.plotly_chart(fig_arc)
 
         # ドメインごとの認証結果
         st.write("ドメインごとの認証結果")
         domain_analysis = df.groupby('header_from').agg({
             'dkim_result': lambda x: (x == 'pass').sum() / len(x) * 100,
             'spf_result': lambda x: (x == 'pass').sum() / len(x) * 100,
+            'arc_result': lambda x: (x == 'pass').sum() / len(x) * 100,
             'count': 'sum'
         }).reset_index()
-        domain_analysis.columns = ['ドメイン', 'DKIM成功率(%)', 'SPF成功率(%)', 'メッセージ数']
+        domain_analysis.columns = ['ドメイン', 'DKIM成功率(%)', 'SPF成功率(%)', 'ARC成功率(%)', 'メッセージ数']
         st.dataframe(domain_analysis)
 
         # 認証結果の不一致分析
@@ -276,7 +305,7 @@ def main():
             st.info("認証結果の不一致は見つかりませんでした。")
 
         # HTMLレポートの生成とダウンロードリンクの表示
-        html_report = generate_html_report(df, fig_dkim, fig_spf, domain_analysis, mismatch_df, total_messages, pass_rate, problem_ips)
+        html_report = generate_html_report(df, fig_dkim, fig_spf, fig_arc, domain_analysis, mismatch_df, total_messages, pass_rate, problem_ips)
         st.markdown(get_table_download_link(html_report), unsafe_allow_html=True)
 
 if __name__ == "__main__":

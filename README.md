@@ -1,5 +1,8 @@
 # DMARCレポート分析アプリ
 
+## デモ
+https://dmarc-report-analyzer.streamlit.app/
+
 ## 概要
 Gmailから受け取ったDMARCレポートを分析します。
 
