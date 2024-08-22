@@ -167,7 +167,7 @@ def generate_html_report(df, dkim_fig, spf_fig, arc_fig, domain_analysis, mismat
     </head>
     <body class="bg-gray-100 text-gray-900 font-sans">
         <div class="container mx-auto px-4 py-8">
-            <h1 class="text-3xl font-bold mb-8">DMARCレポト分析</h1>
+            <h1 class="text-3xl font-bold mb-8">DMARCレポート分析</h1>
             
             <div class="bg-white shadow rounded-lg p-6 mb-8">
                 <h2 class="text-2xl font-semibold mb-4">配信結果概要</h2>
